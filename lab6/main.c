@@ -1,32 +1,34 @@
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include "fileutil.h"
 
+#define BASE (10)
 #define MAX_LINE_SIZE (256)
 #define END_OF_INPUT (0)
 #define NO_ERROR (0)
 #define WRONG_INPUT (-2)
 #define TIMEOUT_EXCEEDED (-3)
+#define TRUE (1)
+#define FALSE (0)
 
 #define TIMEOUT (5)
 #define ALARM_RESET (0)
 
 void alarmSignalHandler(int sig){}
 
-int parseLong(char * line, long * val) {
-    int base = 10;
-    char *lineTail = line;
-    
+int parseUnsigned(char * line, unsigned * val) {
     int errnoSave = errno;
     errno = NO_ERROR;
-
-    long number = strtol(line, &lineTail, base);
-    if (number == 0 && errno != NO_ERROR) {
+    
+	char *lineTail = line;
+    unsigned long number = strtoul(line, &lineTail, BASE);
+    if (number == ULONG_MAX && errno != NO_ERROR) {
         return FAILURE_CODE;
     }
     if (lineTail == line) {
@@ -34,18 +36,21 @@ int parseLong(char * line, long * val) {
     }
 
     static const char spaceCharSet[] = " \t\n\v\f\r";
-    unsigned long strLen = strlen(lineTail);
+    size_t strLen = strlen(lineTail);
     size_t spaceSeqLen = strspn(lineTail, spaceCharSet);
     if ((size_t)strLen != spaceSeqLen) {
         return FAILURE_CODE;
     }
-    *val = number;
-    
+    *val = (unsigned)number;
+    if(*val == UINT_MAX){
+    	return FAILURE_CODE;
+    }
+	
     errno = errnoSave;
     return SUCCESS_CODE;
 }
 
-long readLineNum(int fd){ 
+long getLineNum(int fd){ 
     char line[MAX_LINE_SIZE] = {0};
     ssize_t readRes = read(fd, line, MAX_LINE_SIZE);
     if(readRes < 0 && errno == EINTR){
@@ -55,8 +60,8 @@ long readLineNum(int fd){
         fprintf(stderr, "read() failed\n");
         return FAILURE_CODE;
     }
-    long lineNum;
-    int parseRes = parseLong(line, &lineNum);
+    unsigned lineNum;
+    int parseRes = parseUnsigned(line, &lineNum);
     if(FAILURE_CODE == parseRes){
         return WRONG_INPUT;
     }
@@ -64,15 +69,17 @@ long readLineNum(int fd){
 }
 
 int readLinesFromFile(TextFile * file, int terminal){
-    while(1){ 
+    int endOfInput = FALSE;
+    while(!endOfInput){ 
         alarm(TIMEOUT);
-        int lineNumber = readLineNum(terminal); 
+        int lineNumber = getLineNum(terminal); 
         alarm(ALARM_RESET);
-	if(END_OF_INPUT == lineNumber) {
-            break;
-        }
+		if(END_OF_INPUT == lineNumber) {
+			endOfInput = TRUE;
+			continue;        
+		}
         if(FAILURE_CODE == lineNumber){
-            fprintf(stderr, "readLineNum() failed\n");
+            fprintf(stderr, "getLineNum() failed\n");
             return FAILURE_CODE;
         }
         if(WRONG_INPUT == lineNumber){
@@ -94,7 +101,7 @@ int readLinesFromFile(TextFile * file, int terminal){
         char lineToPrint[BUFSIZ];
         int getLineRes = getLineFromTextFile(lineToPrint, file, lineNumber);
         if(getLineRes == FAILURE_CODE){
-            fprintf(stderr, "getLine() failed\n");
+            fprintf(stderr, "getLineFromTextFile() failed\n");
             return FAILURE_CODE;
         }
         printf("Line %d :\n", lineNumber);
@@ -125,7 +132,7 @@ int main(int argc, char *argv[]){
     }
     int terminal = openRes;
       
-    void (*prevSigHandler)(int) = sigset(SIGALRM, alarmSignalHandler);
+    void (*prevSigHandler)(int) = signal(SIGALRM, alarmSignalHandler);
     if (prevSigHandler == SIG_ERR) {
         perror("signal() failed");
         return EXIT_FAILURE;
@@ -133,7 +140,7 @@ int main(int argc, char *argv[]){
 
     int readLinesRes = readLinesFromFile(&file, terminal);
     if(FAILURE_CODE == readLinesRes){
-        fprintf(stderr, "readLinesRes() failed\n");
+        fprintf(stderr, "readLinesFromFile() failed\n");
         exit(EXIT_FAILURE);         
     }
 

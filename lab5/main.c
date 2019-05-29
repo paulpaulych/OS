@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <limits.h>
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -11,19 +12,18 @@
 #define END_OF_INPUT (0)
 #define TRUE (1)
 #define FALSE (0)
+#define BASE (10)
 #define NO_ERROR (0)
 #define STDOUT (0)
 #define WRONG_INPUT (-2)
 
 int parseInt(char * line, unsigned * val) {
-    int base = 10;
-    char *lineTail = line;
-
     int errnoSave = errno;
     errno = NO_ERROR;
-
-    unsigned number = (int)strtol(line, &lineTail, base);
-    if (number == 0 && errno != NO_ERROR) {
+    
+	char *lineTail = line;
+    unsigned long number = strtoul(line, &lineTail, BASE);
+    if (number == ULONG_MAX && errno != NO_ERROR) {
         return FAILURE_CODE;
     }
     if (lineTail == line) {
@@ -36,20 +36,18 @@ int parseInt(char * line, unsigned * val) {
     if ((size_t)strLen != spaceSeqLen) {
         return FAILURE_CODE;
     }
-    *val = number;
-
+    *val = (unsigned)number;
+    if(*val == UINT_MAX){
+    	return FAILURE_CODE;
+    }
+	
     errno = errnoSave;
     return SUCCESS_CODE;
 }
 
-int readLineNum(){
+int getLineNum(){
     char line[MAX_LINE_SIZE] = {0};
     ssize_t readRes = read(STDIN_FILENO, line, MAX_LINE_SIZE);
-    if(readRes < 0){
-        fprintf(stderr, "read() failed\n");
-        return FAILURE_CODE;
-    }
-
     if(readRes < 0){
         fprintf(stderr, "read() failed\n");
         return FAILURE_CODE;
@@ -63,25 +61,25 @@ int readLineNum(){
 }
 
 int readLinesFromFile(TextFile * file){
-    int lineNumber = FAILURE_CODE;
-    while(END_OF_INPUT != lineNumber){
-	lineNumber = readLineNum();
+    int endOfInput = FALSE;
+    while(!endOfInput){
+		int lineNumber = getLineNum();
         if(FAILURE_CODE == lineNumber){
-            fprintf(stderr, "readLineNum() failed\n");
+            fprintf(stderr, "getLineNum() failed\n");
             return FAILURE_CODE;
         }
-	if(WRONG_INPUT == lineNumber){
-	    printf("Wrong input, try again:\n");
-	    continue;
-	}
+		if(WRONG_INPUT == lineNumber){
+			printf("Wrong input, try again:\n");
+			continue;
+		}
         if(lineNumber > file->linesNum){
             fprintf(stderr,"Too big line number. Try once more:\n");
             continue;
         }
-	if(END_OF_INPUT == lineNumber){
-	    continue;
-	}
-        
+		if(END_OF_INPUT == lineNumber){
+			endOfInput = TRUE;
+			continue;
+		}
         char lineToPrint[BUFSIZ];
         int getLineRes = getLineFromTextFile(lineToPrint, file, lineNumber);
         if(getLineRes == FAILURE_CODE){
@@ -113,7 +111,7 @@ int main(int argc, char *argv[]){
 
     int readLinesRes = readLinesFromFile(&file);
     if(FAILURE_CODE == readLinesRes){
-        fprintf(stderr, "readLinesRes() failed\n");
+        fprintf(stderr, "readLinesFromFile() failed\n");
         exit(EXIT_FAILURE);         
     }
 
