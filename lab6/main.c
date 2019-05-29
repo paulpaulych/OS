@@ -125,7 +125,7 @@ int main(int argc, char *argv[]){
     }
     int terminal = openRes;
       
-    void (*prevSigHandler)(int) = sigset(SIGALRM, alarmSignalHandler);
+    void (*prevSigHandler)(int) = signal(SIGALRM, alarmSignalHandler);
     if (prevSigHandler == SIG_ERR) {
         perror("signal() failed");
         return EXIT_FAILURE;
