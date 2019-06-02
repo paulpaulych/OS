@@ -11,7 +11,7 @@ int fillStrlensTable(TextFile * file);
 void fillOffsetsTable(TextFile * file);
 
 int openTextFile(TextFile *file, char * filename){
-    int openRes = open(filename, O_RDONLY | O_NDELAY);
+    int openRes = open(filename, O_RDONLY);
     if (openRes == FAILURE_CODE){
         perror("open() failed");
         return FAILURE_CODE;
@@ -35,18 +35,24 @@ int closeTextFile(TextFile *file){
     return SUCCESS_CODE;
 }
 
-int getLineFromTextFile(char * line, TextFile * f, size_t lineNumber){
+char * getLineFromTextFile(TextFile * f, size_t lineNumber){
     off_t lseekRes = lseek(f->fd, f->offsets[lineNumber - 1], SEEK_SET);
     if(lseekRes == LSEEK_ERROR){
         perror("lseek() failed");
-        return FAILURE_CODE;
+        return NULL;
     }
-    ssize_t readRes = read(f->fd, line, f->strlens[lineNumber - 1]);
-    if (0 > readRes){
+    char * line = (char *)malloc(f->strlens[lineNumber-1]*sizeof(char));
+    if(!line){
+	perror("malloc() failed");	
+	return NULL;
+    }
+    int readRes = read(f->fd, line, f->strlens[lineNumber-1]);
+    if(readRes < 0){
         perror("read() failed");
-        return FAILURE_CODE;
+        free(line);
+	return NULL;
     }
-    return SUCCESS_CODE;
+    return line;
 }
 
 int fillStrlensTable(TextFile *file){

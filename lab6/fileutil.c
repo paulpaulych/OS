@@ -88,6 +88,7 @@ void fillOffsetsTable(TextFile * file){
 
 int printFile(TextFile * file){
     int lineNum;
+    printf("\n");
     for(lineNum = 0; lineNum < file->linesNum; ++lineNum){
         char lineToPrint[BUFSIZ] = {0};
         int getLineRes = getLineFromTextFile(lineToPrint, file, lineNum+1);

@@ -8,7 +8,7 @@
 #include <limits.h>
 #include "fileutil.h"
 
-#define MAX_LINE_SIZE (256)
+#define MAX_LINE_SIZE (5)
 #define END_OF_INPUT (0)
 #define TRUE (1)
 #define FALSE (0)
@@ -17,43 +17,77 @@
 #define STDOUT (0)
 #define WRONG_INPUT (-2)
 
-int parseInt(char * line, unsigned * val) {
-    int errnoSave = errno;
+int parseUnsigned(char * line, unsigned * val) {
+    int errnoSaved = errno;
     errno = NO_ERROR;
-    
-	char *lineTail = line;
-    unsigned long number = strtoul(line, &lineTail, BASE);
-    if (number == ULONG_MAX && errno != NO_ERROR) {
+    char *lineTail = line;
+    long number = strtol(line, &lineTail, BASE);
+    if ((number == 0 || number == ULONG_MAX) && errno != NO_ERROR) {
+        errno = errnoSaved;
         return FAILURE_CODE;
     }
-    if (lineTail == line) {
+    if(number < 0){
+        errno = errnoSaved;
         return FAILURE_CODE;
     }
-
+    if(lineTail == line) {
+        errno = errnoSaved;
+        return FAILURE_CODE;
+    }
     static const char spaceCharSet[] = " \t\n\v\f\r";
     size_t strLen = strlen(lineTail);
     size_t spaceSeqLen = strspn(lineTail, spaceCharSet);
     if ((size_t)strLen != spaceSeqLen) {
+        errno = errnoSaved;
         return FAILURE_CODE;
     }
     *val = (unsigned)number;
-    if(*val == UINT_MAX){
-    	return FAILURE_CODE;
-    }
-	
-    errno = errnoSave;
+    errno = errnoSaved;
     return SUCCESS_CODE;
 }
 
+char* readLine(){
+    char buf[BUFSIZ] = {0};
+    int bufLen = 1;
+    int curStrLen = 0;
+    char *outStr = NULL;
+    while('\n' != buf[bufLen-1]){   
+        char* fgetsRes = fgets(buf, BUFSIZ, stdin);
+        if(fgetsRes == NULL && ferror(stdin)){
+            fprintf(stderr, "stdin read failed\n");
+            free(outStr);
+            return NULL;
+        }
+	if(fgetsRes == NULL && feof(stdin)){
+	    fprintf(stderr, "fgets() failed: EOF encountered\n");
+	    free(outStr);
+	    return NULL;
+	}
+        bufLen = strlen(buf);
+        curStrLen += bufLen;
+        char* reallocRes = (char *)realloc(outStr, curStrLen);
+        if(!reallocRes){
+            perror("realloc() failed");
+            free(outStr);
+            return NULL;
+        }
+        if(!outStr){
+            reallocRes[0] = '\0';
+        }
+        outStr = reallocRes;
+        strcat(outStr, buf);
+    }
+    return outStr;
+}
+
 int getLineNum(){
-    char line[MAX_LINE_SIZE] = {0};
-    ssize_t readRes = read(STDIN_FILENO, line, MAX_LINE_SIZE);
-    if(readRes < 0){
-        fprintf(stderr, "read() failed\n");
+    char * line = readLine();
+    if(line == NULL) {
+	fprintf(stderr, "readLine() failed\n");
         return FAILURE_CODE;
     }
     int lineNum;
-    int parseRes = parseInt(line, &lineNum);
+    int parseRes = parseUnsigned(line, &lineNum);
     if(FAILURE_CODE == parseRes){
         return WRONG_INPUT;
     }
@@ -63,31 +97,30 @@ int getLineNum(){
 int readLinesFromFile(TextFile * file){
     int endOfInput = FALSE;
     while(!endOfInput){
-		int lineNumber = getLineNum();
+	int lineNumber = getLineNum();
         if(FAILURE_CODE == lineNumber){
             fprintf(stderr, "getLineNum() failed\n");
             return FAILURE_CODE;
         }
-		if(WRONG_INPUT == lineNumber){
-			printf("Wrong input, try again:\n");
-			continue;
-		}
+	if(WRONG_INPUT == lineNumber){
+		printf("Wrong input, try again:\n");
+		continue;
+	}
         if(lineNumber > file->linesNum){
             fprintf(stderr,"Too big line number. Try once more:\n");
             continue;
         }
-		if(END_OF_INPUT == lineNumber){
-			endOfInput = TRUE;
-			continue;
-		}
-        char lineToPrint[BUFSIZ];
-        int getLineRes = getLineFromTextFile(lineToPrint, file, lineNumber);
-        if(getLineRes == FAILURE_CODE){
+	if(END_OF_INPUT == lineNumber){
+    	    endOfInput = TRUE;
+            continue;
+	}
+	char * lineToPrint = getLineFromTextFile(file, lineNumber);
+        if(!lineToPrint){
             fprintf(stderr, "getLine() failed\n");
             return FAILURE_CODE;
         }
-        printf("Line %d:\n", lineNumber);
-        ssize_t writeRes = write(STDOUT, lineToPrint, file->strlens[lineNumber - 1]);
+	fprintf(stdout, "Line %d:\n", lineNumber);
+        ssize_t writeRes = write(STDOUT_FILENO, lineToPrint, file->strlens[lineNumber-1]);
         if (0 > writeRes){
             perror("write() failed");
             return FAILURE_CODE;
@@ -112,6 +145,7 @@ int main(int argc, char *argv[]){
     int readLinesRes = readLinesFromFile(&file);
     if(FAILURE_CODE == readLinesRes){
         fprintf(stderr, "readLinesFromFile() failed\n");
+	closeTextFile(&file);
         exit(EXIT_FAILURE);         
     }
 

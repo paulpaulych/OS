@@ -23,45 +23,86 @@
 void alarmSignalHandler(int sig){}
 
 int parseUnsigned(char * line, unsigned * val) {
-    int errnoSave = errno;
+    int errnoSaved = errno;
     errno = NO_ERROR;
-    
-	char *lineTail = line;
-    unsigned long number = strtoul(line, &lineTail, BASE);
-    if (number == ULONG_MAX && errno != NO_ERROR) {
+    char *lineTail = line;
+    long number = strtol(line, &lineTail, BASE);
+    if ((number == 0 || number == ULONG_MAX) && errno != NO_ERROR) {
+	errno = errnoSaved;
         return FAILURE_CODE;
+    }
+    if(number < 0){
+	errno = errnoSaved;
+	return FAILURE_CODE;
     }
     if (lineTail == line) {
+	errno = errnoSaved;
         return FAILURE_CODE;
     }
-
     static const char spaceCharSet[] = " \t\n\v\f\r";
     size_t strLen = strlen(lineTail);
     size_t spaceSeqLen = strspn(lineTail, spaceCharSet);
     if ((size_t)strLen != spaceSeqLen) {
+	errno = errnoSaved;
         return FAILURE_CODE;
     }
-    *val = (unsigned)number;
-    if(*val == UINT_MAX){
-    	return FAILURE_CODE;
-    }
-	
-    errno = errnoSave;
+    *val = (unsigned)number;	
+    errno = errnoSaved;
     return SUCCESS_CODE;
 }
 
-long getLineNum(int fd){ 
-    char line[MAX_LINE_SIZE] = {0};
-    ssize_t readRes = read(fd, line, MAX_LINE_SIZE);
-    if(readRes < 0 && errno == EINTR){
+int readLine(char ** outStr_){
+    char buf[BUFSIZ] = {0};
+    size_t bufLen = 1;
+    int curStrLen = 0;
+    char *outStr = NULL;
+    while('\n' != buf[bufLen-1]){
+        char* fgetsRes = fgets(buf, BUFSIZ, stdin);
+        if(fgetsRes == NULL && ferror(stdin) && errno == EINTR){
+            free(outStr);
+	    return TIMEOUT_EXCEEDED;
+	}
+	if(fgetsRes == NULL && ferror(stdin)){
+            fprintf(stderr, "stdin read failed\n");
+            free(outStr);
+            return FAILURE_CODE;
+        }
+        if(fgetsRes == NULL && feof(stdin)){
+            fprintf(stderr, "fgets() failed: EOF encountered\n");
+            free(outStr);
+            return FAILURE_CODE;
+        }
+        bufLen = strlen(buf);
+        curStrLen += bufLen;
+        char* reallocRes = (char *)realloc(outStr, curStrLen);
+        if(!reallocRes){
+            perror("realloc() failed");
+            free(outStr);
+            return FAILURE_CODE;
+        }
+        if(!outStr){
+            reallocRes[0] = '\0';
+        }
+        outStr = reallocRes;
+        strcat(outStr, buf);
+    }
+    *outStr_ = outStr;
+    return SUCCESS_CODE;
+}
+
+int getLineNum(int fd){ 
+    char * line;
+    int readLineRes = readLine(&line);
+    if(readLineRes == TIMEOUT_EXCEEDED){
 	return TIMEOUT_EXCEEDED;
     }
-    if(readRes < 0){
-        fprintf(stderr, "read() failed\n");
-        return FAILURE_CODE;
+    if(readLineRes == FAILURE_CODE){
+	fprintf(stderr, "readLine() failed\n");
+	return FAILURE_CODE;
     }
     unsigned lineNum;
     int parseRes = parseUnsigned(line, &lineNum);
+        
     if(FAILURE_CODE == parseRes){
         return WRONG_INPUT;
     }
@@ -73,11 +114,11 @@ int readLinesFromFile(TextFile * file, int terminal){
     while(!endOfInput){ 
         alarm(TIMEOUT);
         int lineNumber = getLineNum(terminal); 
-        alarm(ALARM_RESET);
-		if(END_OF_INPUT == lineNumber) {
-			endOfInput = TRUE;
-			continue;        
-		}
+	alarm(ALARM_RESET);
+	if(END_OF_INPUT == lineNumber) {
+	    endOfInput = TRUE;
+	    continue;        
+	}
         if(FAILURE_CODE == lineNumber){
             fprintf(stderr, "getLineNum() failed\n");
             return FAILURE_CODE;
@@ -125,23 +166,17 @@ int main(int argc, char *argv[]){
         fprintf(stderr, "openTextFile() failed\n");
         exit(EXIT_FAILURE);
     }
-    openRes = open("/dev/tty", O_RDONLY);
-    if(FAILURE_CODE == openRes){
+    int terminal = open("/dev/tty", O_RDONLY);
+    if(FAILURE_CODE == terminal){
+	closeTextFile(&file);
         fprintf(stderr, "open() failed\n");
         exit(EXIT_FAILURE);
     }
-    int terminal = openRes;
-      
+     
     void (*prevSigHandler)(int) = signal(SIGALRM, alarmSignalHandler);
     if (prevSigHandler == SIG_ERR) {
         perror("signal() failed");
         return EXIT_FAILURE;
-    }
-
-    int readLinesRes = readLinesFromFile(&file, terminal);
-    if(FAILURE_CODE == readLinesRes){
-        fprintf(stderr, "readLinesFromFile() failed\n");
-        exit(EXIT_FAILURE);         
     }
 
     int closeRes = closeTextFile(&file);
@@ -149,10 +184,6 @@ int main(int argc, char *argv[]){
         fprintf(stderr, "closeTextFile() failed\n");
         exit(EXIT_FAILURE);
     }
-    closeRes = close(terminal);
-    if(FAILURE_CODE == closeRes){
-        fprintf(stderr, "close() failed\n");
-        exit(EXIT_FAILURE);
-    }
+
     exit(EXIT_SUCCESS);
 }

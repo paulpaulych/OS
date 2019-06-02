@@ -21,7 +21,7 @@ typedef struct textFile {
 int openTextFile(TextFile *file, char *filename);
 int closeTextFile(TextFile *file);
 
-int getLineFromTextFile(char * line, TextFile * f, size_t lineNumber);
+char * getLineFromTextFile(TextFile * f, size_t lineNumber);
 
 #endif // FILEUTIL_H
 
